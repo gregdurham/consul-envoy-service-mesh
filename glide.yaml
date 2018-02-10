@@ -1,0 +1,16 @@
+package: github.com/gregdurham/consul-envoy-service-mesh
+import:
+- package: github.com/gogo/protobuf
+  version: =0.5
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: google.golang.org/grpc
+  version: ^1.7.0
+- package: github.com/golang/glog
+- package: github.com/hashicorp/consul
+  version: ^1.0.2
+- package: github.com/envoyproxy/go-control-plane
+- package: github.com/cskr/pubsub
+- package: github.com/prometheus/client_golang
+- package: github.com/grpc-ecosystem/go-grpc-prometheus
