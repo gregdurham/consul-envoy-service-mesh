@@ -203,18 +203,18 @@ func (s *lds) manager() *types.Struct {
 }
 
 func (s *lds) configTLS() *envoy_api_v2_auth.DownstreamTlsContext {
-	const base = "/etc/envoy/conf.d/"
+	const base = "/etc/envoy/ssl/"
 	return &envoy_api_v2_auth.DownstreamTlsContext{
 		CommonTlsContext: &envoy_api_v2_auth.CommonTlsContext{
 			TlsCertificates: []*envoy_api_v2_auth.TlsCertificate{{
 				CertificateChain: &envoy_api_v2_core.DataSource{
 					&envoy_api_v2_core.DataSource_Filename{
-						Filename: filepath.Join(base, "cert.pem"),
+						Filename: filepath.Join(base, "envoy.crt"),
 					},
 				},
 				PrivateKey: &envoy_api_v2_core.DataSource{
 					&envoy_api_v2_core.DataSource_Filename{
-						Filename: filepath.Join(base, "priv.pem"),
+						Filename: filepath.Join(base, "envoy.pem"),
 					},
 				},
 			}},

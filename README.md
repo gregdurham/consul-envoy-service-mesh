@@ -44,7 +44,7 @@ Sample configuration:
 "envoy/test/listener/local_service/tls" => true
 ```
 
-If TLS is true above, the certs are assumed to be installed in `/etc/envoy/conf.d/` the files are `cert.pem` and `priv.pem`. This will be configurable in the future.
+If TLS is true above, the certs are assumed to be installed in `/etc/envoy/ssl/` the files are `envoy.pem` and `envoy.crt`. This will be configurable in the future.
 
 Available options are here: 
 - [cluster](https://github.com/gregdurham/consul-envoy-service-mesh/blob/master/config/cluster.go#L21)
