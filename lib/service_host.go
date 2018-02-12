@@ -1,7 +1,9 @@
 package lib
 
 import (
-  cp "github.com/envoyproxy/go-control-plane/api"
+  envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
+  envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+  
   "github.com/hashicorp/consul/api"
 )
 
@@ -14,16 +16,16 @@ type ServiceHost struct {
   ModifyIndex uint64
 }
 
-func (h ServiceHost) LbEndpoint() *cp.LbEndpoint {
-  return &cp.LbEndpoint{
-    HealthStatus: cp.HealthStatus_HEALTHY,
-    Endpoint: &cp.Endpoint{
-      Address: &cp.Address{
-        Address: &cp.Address_SocketAddress{
-          SocketAddress: &cp.SocketAddress{
-            Protocol: cp.SocketAddress_TCP,
+func (h ServiceHost) LbEndpoint() envoy_api_v2_endpoint.LbEndpoint {
+  return envoy_api_v2_endpoint.LbEndpoint{
+    HealthStatus: envoy_api_v2_core.HealthStatus_HEALTHY,
+    Endpoint: &envoy_api_v2_endpoint.Endpoint{
+      Address: &envoy_api_v2_core.Address{
+        Address: &envoy_api_v2_core.Address_SocketAddress{
+          SocketAddress: &envoy_api_v2_core.SocketAddress{
+            Protocol: envoy_api_v2_core.TCP,
             Address:  h.IPAddress,
-            PortSpecifier: &cp.SocketAddress_PortValue{
+            PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
               PortValue: uint32(h.Port),
             },
           },

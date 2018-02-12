@@ -1,11 +1,14 @@
 package lib
 
 import (
-  cp "github.com/envoyproxy/go-control-plane/api"
+  "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+  envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
+  envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+  envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 )
 
 type Endpoint interface {
-  CLA() *cp.ClusterLoadAssignment
+  CLA() *v2.ClusterLoadAssignment
 }
 
 type eds struct {
@@ -13,8 +16,8 @@ type eds struct {
   endpoints   []*endpoint
 }
 
-func (s *eds) getLbEndpoints() []*cp.LbEndpoint {
-  hosts := make([]*cp.LbEndpoint, 0)
+func (s *eds) getLbEndpoints() []envoy_api_v2_endpoint.LbEndpoint {
+  hosts := make([]envoy_api_v2_endpoint.LbEndpoint, 0)
   for _, s := range s.endpoints {
     hosts = append(hosts, NewServiceHost(s).LbEndpoint())
   }
@@ -22,23 +25,23 @@ func (s *eds) getLbEndpoints() []*cp.LbEndpoint {
 }
 
 //Need to override
-func (s *eds) locality() *cp.Locality {
-  return &cp.Locality{
+func (s *eds) locality() *envoy_api_v2_core.Locality {
+  return &envoy_api_v2_core.Locality{
     Region: "dc1",
   }
 }
 
-func (s *eds) getLocalityEndpoints() []*cp.LocalityLbEndpoints {
-  return []*cp.LocalityLbEndpoints{{Locality: s.locality(), LbEndpoints: s.getLbEndpoints()}}
+func (s *eds) getLocalityEndpoints() []envoy_api_v2_endpoint.LocalityLbEndpoints {
+  return []envoy_api_v2_endpoint.LocalityLbEndpoints{{Locality: s.locality(), LbEndpoints: s.getLbEndpoints()}}
 }
 
 
-func (s *eds) claPolicy() *cp.ClusterLoadAssignment_Policy {
-  return &cp.ClusterLoadAssignment_Policy{DropOverload: 0.0}
+func (s *eds) claPolicy() *envoy_api_v2.ClusterLoadAssignment_Policy {
+  return &envoy_api_v2.ClusterLoadAssignment_Policy{DropOverload: 0.0}
 }
 
-func (s *eds) CLA() *cp.ClusterLoadAssignment {
-  return &cp.ClusterLoadAssignment{Endpoints: s.getLocalityEndpoints(), ClusterName: s.clusterName, Policy: s.claPolicy()}
+func (s *eds) CLA() *v2.ClusterLoadAssignment {
+  return &v2.ClusterLoadAssignment{Endpoints: s.getLocalityEndpoints(), ClusterName: s.clusterName, Policy: s.claPolicy()}
 }
 
 //NewEndpoint creates an ServiceEndpoint representation

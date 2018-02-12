@@ -1,7 +1,6 @@
 package agent
 
 import (
-  cp "github.com/envoyproxy/go-control-plane/api"
   "github.com/hashicorp/consul/api"
 )
 
@@ -13,7 +12,6 @@ type agent struct {
 
 //ConsulAgent describes consul agent behaviour
 type ConsulAgent interface {
-  Locality() *cp.Locality
   CatalogServices()  (map[string][]string, error)
   CatalogServiceEndpoints(serviceName string) ([]*api.CatalogService, error)
   WatchParams() map[string]string
@@ -44,13 +42,6 @@ func (a agent) kv() (*api.KV, error) {
     return nil, err
   }
   return client.KV(), nil
-}
-
-//Locality translates Agent info to envoy control plane locality
-func (a agent) Locality() *cp.Locality {
-  return &cp.Locality{
-    Region: a.datacenter,
-  }
 }
 
 func (a agent) CatalogServices() (map[string][]string, error) {

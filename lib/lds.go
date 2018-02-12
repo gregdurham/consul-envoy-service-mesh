@@ -1,13 +1,17 @@
 package lib
 
 import (
-  strConfig "github.com/gregdurham/consul-envoy-xds/config"
+  strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
 
-  "github.com/envoyproxy/go-control-plane/api/filter/network"
-  httpFilter "github.com/envoyproxy/go-control-plane/api/filter/http"
-  accessLog "github.com/envoyproxy/go-control-plane/api/filter/accesslog"
+  hcm "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
+  envoy_config_filter_http_health_check_v2 "github.com/envoyproxy/go-control-plane/envoy/config/filter/http/health_check/v2"
+  envoy_config_filter_http_router_v2 "github.com/envoyproxy/go-control-plane/envoy/config/filter/http/router/v2"
+  envoy_config_filter_accesslog_v2 "github.com/envoyproxy/go-control-plane/envoy/config/filter/accesslog/v2"
+  envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+  envoy_api_v2_auth "github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
+  envoy_api_v2_listener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
   "github.com/envoyproxy/go-control-plane/pkg/util"
-  cp "github.com/envoyproxy/go-control-plane/api"
+  envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 
   "github.com/gogo/protobuf/types"
 
@@ -16,7 +20,7 @@ import (
 )
 
 type Listener interface {
-  Listener() *cp.Listener
+  Listener() *envoy_api_v2.Listener
 }
 
 type lds struct {
@@ -28,17 +32,17 @@ func (s *lds) Ads() bool {
   return s.ads
 }
 
-func (s *lds) configSource() cp.ConfigSource {
-  var rdsSource cp.ConfigSource
+func (s *lds) configSource() envoy_api_v2_core.ConfigSource {
+  var rdsSource envoy_api_v2_core.ConfigSource
   if s.Ads() {
-    rdsSource.ConfigSourceSpecifier = &cp.ConfigSource_Ads{
-      Ads: &cp.AggregatedConfigSource{},
+    rdsSource.ConfigSourceSpecifier = &envoy_api_v2_core.ConfigSource_Ads{
+      Ads: &envoy_api_v2_core.AggregatedConfigSource{},
     }
   } else {
-    rdsSource.ConfigSourceSpecifier = &cp.ConfigSource_ApiConfigSource{
-      ApiConfigSource: &cp.ApiConfigSource{
-        ApiType:     cp.ApiConfigSource_GRPC,
-        ClusterName: []string{"xds_cluster"},
+    rdsSource.ConfigSourceSpecifier = &envoy_api_v2_core.ConfigSource_ApiConfigSource{
+      ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
+        ApiType:     envoy_api_v2_core.ApiConfigSource_GRPC,
+        ClusterNames: []string{"xds_cluster"},
       },
     }
   }
@@ -46,7 +50,7 @@ func (s *lds) configSource() cp.ConfigSource {
 }
 
 func (s *lds) healthCheck() *types.Struct {
-  healthCheck := &httpFilter.HealthCheck{
+  healthCheck := &envoy_config_filter_http_health_check_v2.HealthCheck{
     PassThroughMode: &types.BoolValue{true},
     Endpoint: "/status",
   }
@@ -58,7 +62,7 @@ func (s *lds) healthCheck() *types.Struct {
 }
 
 func (s *lds) router() *types.Struct {
-  routerConfig := &httpFilter.Router{}
+  routerConfig := &envoy_config_filter_http_router_v2.Router{}
   pbst, err := util.MessageToStruct(routerConfig)
   if err != nil {
     panic(err)
@@ -67,7 +71,7 @@ func (s *lds) router() *types.Struct {
 }
 
 func (s *lds) accessLogConfig(fileName string) *types.Struct {
-  accessLogConfig := &accessLog.FileAccessLog{
+  accessLogConfig := &envoy_config_filter_accesslog_v2.FileAccessLog{
     Path: fmt.Sprintf("/var/log/envoy/%s", fileName),
     Format: "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\"\n",
   }
@@ -78,21 +82,21 @@ func (s *lds) accessLogConfig(fileName string) *types.Struct {
   return pbst
 }
 
-func (s *lds) errorLog(statPrefix string) *accessLog.AccessLog {
-  return &accessLog.AccessLog{
+func (s *lds) errorLog(statPrefix string) *envoy_config_filter_accesslog_v2.AccessLog {
+  return &envoy_config_filter_accesslog_v2.AccessLog{
     Name: "envoy.file_access_log",
-    Filter: &accessLog.AccessLogFilter{
-      FilterSpecifier: &accessLog.AccessLogFilter_AndFilter{
-        AndFilter: &accessLog.AndFilter{
-          Filters: []*accessLog.AccessLogFilter{{
-            FilterSpecifier: &accessLog.AccessLogFilter_OrFilter{
-              OrFilter: &accessLog.OrFilter{
-                Filters: []*accessLog.AccessLogFilter{{
-                  FilterSpecifier: &accessLog.AccessLogFilter_StatusCodeFilter{
-                    StatusCodeFilter: &accessLog.StatusCodeFilter{
-                      Comparison: &accessLog.ComparisonFilter{
-                        Op: accessLog.ComparisonFilter_GE,
-                        Value: &cp.RuntimeUInt32{
+    Filter: &envoy_config_filter_accesslog_v2.AccessLogFilter{
+      FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_AndFilter{
+        AndFilter: &envoy_config_filter_accesslog_v2.AndFilter{
+          Filters: []*envoy_config_filter_accesslog_v2.AccessLogFilter{{
+            FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_OrFilter{
+              OrFilter: &envoy_config_filter_accesslog_v2.OrFilter{
+                Filters: []*envoy_config_filter_accesslog_v2.AccessLogFilter{{
+                  FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_StatusCodeFilter{
+                    StatusCodeFilter: &envoy_config_filter_accesslog_v2.StatusCodeFilter{
+                      Comparison: &envoy_config_filter_accesslog_v2.ComparisonFilter{
+                        Op: envoy_config_filter_accesslog_v2.ComparisonFilter_GE,
+                        Value: &envoy_api_v2_core.RuntimeUInt32{
                           DefaultValue: uint32(200),
                           RuntimeKey: "test",
                         },
@@ -100,11 +104,11 @@ func (s *lds) errorLog(statPrefix string) *accessLog.AccessLog {
                     },
                   },
                 },{
-                  FilterSpecifier: &accessLog.AccessLogFilter_StatusCodeFilter{
-                    StatusCodeFilter: &accessLog.StatusCodeFilter{
-                      Comparison: &accessLog.ComparisonFilter{
-                        Op: accessLog.ComparisonFilter_EQ,
-                        Value: &cp.RuntimeUInt32{
+                  FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_StatusCodeFilter{
+                    StatusCodeFilter: &envoy_config_filter_accesslog_v2.StatusCodeFilter{
+                      Comparison: &envoy_config_filter_accesslog_v2.ComparisonFilter{
+                        Op: envoy_config_filter_accesslog_v2.ComparisonFilter_EQ,
+                        Value: &envoy_api_v2_core.RuntimeUInt32{
                           DefaultValue: uint32(0),
                           RuntimeKey: "test",
                         },
@@ -112,11 +116,11 @@ func (s *lds) errorLog(statPrefix string) *accessLog.AccessLog {
                     },
                   },
                 },{
-                  FilterSpecifier: &accessLog.AccessLogFilter_DurationFilter{
-                    DurationFilter: &accessLog.DurationFilter{
-                      Comparison: &accessLog.ComparisonFilter{
-                        Op: accessLog.ComparisonFilter_GE,
-                        Value: &cp.RuntimeUInt32{
+                  FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_DurationFilter{
+                    DurationFilter: &envoy_config_filter_accesslog_v2.DurationFilter{
+                      Comparison: &envoy_config_filter_accesslog_v2.ComparisonFilter{
+                        Op: envoy_config_filter_accesslog_v2.ComparisonFilter_GE,
+                        Value: &envoy_api_v2_core.RuntimeUInt32{
                           DefaultValue: uint32(2000),
                           RuntimeKey: "test",
                         },
@@ -127,8 +131,8 @@ func (s *lds) errorLog(statPrefix string) *accessLog.AccessLog {
               },
             },
           },{
-            FilterSpecifier: &accessLog.AccessLogFilter_NotHealthCheckFilter{
-              NotHealthCheckFilter: &accessLog.NotHealthCheckFilter{},
+            FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_NotHealthCheckFilter{
+              NotHealthCheckFilter: &envoy_config_filter_accesslog_v2.NotHealthCheckFilter{},
             },
           }},
         },
@@ -138,12 +142,12 @@ func (s *lds) errorLog(statPrefix string) *accessLog.AccessLog {
   }
 }
 
-func (s *lds) accessLog(statPrefix string) *accessLog.AccessLog {
-  return &accessLog.AccessLog{
+func (s *lds) accessLog(statPrefix string) *envoy_config_filter_accesslog_v2.AccessLog {
+  return &envoy_config_filter_accesslog_v2.AccessLog{
     Name: "envoy.file_access_log",
-    Filter: &accessLog.AccessLogFilter{
-      FilterSpecifier: &accessLog.AccessLogFilter_NotHealthCheckFilter{
-        NotHealthCheckFilter: &accessLog.NotHealthCheckFilter{},
+    Filter: &envoy_config_filter_accesslog_v2.AccessLogFilter{
+      FilterSpecifier: &envoy_config_filter_accesslog_v2.AccessLogFilter_NotHealthCheckFilter{
+        NotHealthCheckFilter: &envoy_config_filter_accesslog_v2.NotHealthCheckFilter{},
       },
     },
     Config: s.accessLogConfig(fmt.Sprintf("%s.log", statPrefix)),
@@ -151,9 +155,9 @@ func (s *lds) accessLog(statPrefix string) *accessLog.AccessLog {
 }
 
 func (s *lds) manager() *types.Struct {
-  logs := []*accessLog.AccessLog{}
-  operation := network.HttpConnectionManager_Tracing_EGRESS
-  httpFilters := []*network.HttpFilter{{
+  logs := []*envoy_config_filter_accesslog_v2.AccessLog{}
+  operation := hcm.EGRESS
+  httpFilters := []*hcm.HttpFilter{{
     Name: "envoy.router",
     Config: s.router(),
   }}
@@ -162,8 +166,8 @@ func (s *lds) manager() *types.Struct {
 
   if s.listener.GetName() == "local_service" {
     statPrefix = "ingress_http"
-    operation = network.HttpConnectionManager_Tracing_INGRESS
-    healthCheck := &network.HttpFilter{
+    operation = hcm.INGRESS
+    healthCheck := &hcm.HttpFilter{
       Name: "envoy.health_check",
       Config: s.healthCheck(),
     }
@@ -176,14 +180,14 @@ func (s *lds) manager() *types.Struct {
     logs = append(logs, s.accessLog(statPrefix))
   }
   
-  manager := &network.HttpConnectionManager{
-    CodecType:  network.HttpConnectionManager_AUTO,
+  manager := &hcm.HttpConnectionManager{
+    CodecType:  hcm.AUTO,
     StatPrefix: statPrefix,
-    Tracing: &network.HttpConnectionManager_Tracing{
+    Tracing: &hcm.HttpConnectionManager_Tracing{
       OperationName: operation,
     },
-    RouteSpecifier: &network.HttpConnectionManager_Rds{
-      Rds: &network.Rds{
+    RouteSpecifier: &hcm.HttpConnectionManager_Rds{
+      Rds: &hcm.Rds{
         ConfigSource:    s.configSource(),
         RouteConfigName: s.listener.GetName(),
       },
@@ -198,18 +202,18 @@ func (s *lds) manager() *types.Struct {
   return pbst
 }
 
-func (s *lds) configTLS() *cp.DownstreamTlsContext {
+func (s *lds) configTLS() *envoy_api_v2_auth.DownstreamTlsContext {
   const base = "/etc/envoy/conf.d/"
-  return &cp.DownstreamTlsContext{
-    CommonTlsContext: &cp.CommonTlsContext{
-      TlsCertificates: []*cp.TlsCertificate{{
-        CertificateChain: &cp.DataSource{
-          &cp.DataSource_Filename{
+  return &envoy_api_v2_auth.DownstreamTlsContext{
+    CommonTlsContext: &envoy_api_v2_auth.CommonTlsContext{
+      TlsCertificates: []*envoy_api_v2_auth.TlsCertificate{{
+        CertificateChain: &envoy_api_v2_core.DataSource{
+          &envoy_api_v2_core.DataSource_Filename{
             Filename: filepath.Join(base, "cert.pem"),
           },
         },
-        PrivateKey: &cp.DataSource{
-          &cp.DataSource_Filename{
+        PrivateKey: &envoy_api_v2_core.DataSource{
+          &envoy_api_v2_core.DataSource_Filename{
             Filename: filepath.Join(base, "priv.pem"),
           },
         },
@@ -218,19 +222,19 @@ func (s *lds) configTLS() *cp.DownstreamTlsContext {
   }
 }
 
-func (s *lds) configFilterChain() *cp.FilterChain {
-  var filterChain *cp.FilterChain
+func (s *lds) configFilterChain() envoy_api_v2_listener.FilterChain {
+  var filterChain envoy_api_v2_listener.FilterChain
   if s.listener.GetTLS() == true {
-    filterChain = &cp.FilterChain{
+    filterChain = envoy_api_v2_listener.FilterChain{
       TlsContext: s.configTLS(),
-      Filters: []*cp.Filter{{
+      Filters: []envoy_api_v2_listener.Filter{{
         Name:   "envoy.http_connection_manager",
         Config: s.manager(),
       }},
     }
   } else {
-    filterChain = &cp.FilterChain{
-      Filters: []*cp.Filter{{
+    filterChain = envoy_api_v2_listener.FilterChain{
+      Filters: []envoy_api_v2_listener.Filter{{
         Name:   "envoy.http_connection_manager",
         Config: s.manager(),
       }},
@@ -239,21 +243,21 @@ func (s *lds) configFilterChain() *cp.FilterChain {
   return filterChain
 }
 
-func (s *lds) Listener() *cp.Listener {
-  listener := &cp.Listener{
+func (s *lds) Listener() *envoy_api_v2.Listener {
+  listener := &envoy_api_v2.Listener{
     Name: s.listener.GetName(),
-    Address: &cp.Address{
-      Address: &cp.Address_SocketAddress{
-        SocketAddress: &cp.SocketAddress{
-          Protocol: cp.SocketAddress_TCP,
+    Address: envoy_api_v2_core.Address{
+      Address: &envoy_api_v2_core.Address_SocketAddress{
+        SocketAddress: &envoy_api_v2_core.SocketAddress{
+          Protocol: envoy_api_v2_core.TCP,
           Address:  s.listener.GetHost(),
-          PortSpecifier: &cp.SocketAddress_PortValue{
+          PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
             PortValue: uint32(s.listener.GetPort()),
           },
         },
       },
     },
-    FilterChains: []*cp.FilterChain{},
+    FilterChains: []envoy_api_v2_listener.FilterChain{},
   }
 
   listener.FilterChains = append(listener.FilterChains, s.configFilterChain())

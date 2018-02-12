@@ -1,8 +1,9 @@
 package lib
 
 import (
-  strConfig "github.com/gregdurham/consul-envoy-xds/config"
-  cp "github.com/envoyproxy/go-control-plane/api"
+  strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
+  envoy_api_v2_route "github.com/envoyproxy/go-control-plane/envoy/api/v2/route"
+  
   "fmt"
 )
 
@@ -18,38 +19,38 @@ func (v VirtualHost) getPrefix() string {
   }
 }
 
-func (v VirtualHost) CookieHashPolicy() *cp.RouteAction_HashPolicy {
-  return &cp.RouteAction_HashPolicy{
-    PolicySpecifier: &cp.RouteAction_HashPolicy_Cookie_{
-      Cookie: &cp.RouteAction_HashPolicy_Cookie{
+func (v VirtualHost) CookieHashPolicy() *envoy_api_v2_route.RouteAction_HashPolicy {
+  return &envoy_api_v2_route.RouteAction_HashPolicy{
+    PolicySpecifier: &envoy_api_v2_route.RouteAction_HashPolicy_Cookie_{
+      Cookie: &envoy_api_v2_route.RouteAction_HashPolicy_Cookie{
         Name: v.Cluster.GetCookie(),
       },
     },
   }
 }
 
-func (v VirtualHost) HeaderHashPolicy() *cp.RouteAction_HashPolicy {
-  return &cp.RouteAction_HashPolicy{
-    PolicySpecifier: &cp.RouteAction_HashPolicy_Header_{
-      Header: &cp.RouteAction_HashPolicy_Header{
+func (v VirtualHost) HeaderHashPolicy() *envoy_api_v2_route.RouteAction_HashPolicy {
+  return &envoy_api_v2_route.RouteAction_HashPolicy{
+    PolicySpecifier: &envoy_api_v2_route.RouteAction_HashPolicy_Header_{
+      Header: &envoy_api_v2_route.RouteAction_HashPolicy_Header{
         HeaderName: v.Cluster.GetHeader(),
       },
     },
   }
 }
 
-func (v VirtualHost) ConnectionPropertiesHashPolicy() *cp.RouteAction_HashPolicy {
-  return &cp.RouteAction_HashPolicy{
-    PolicySpecifier: &cp.RouteAction_HashPolicy_ConnectionProperties_{
-      ConnectionProperties: &cp.RouteAction_HashPolicy_ConnectionProperties{
+func (v VirtualHost) ConnectionPropertiesHashPolicy() *envoy_api_v2_route.RouteAction_HashPolicy {
+  return &envoy_api_v2_route.RouteAction_HashPolicy{
+    PolicySpecifier: &envoy_api_v2_route.RouteAction_HashPolicy_ConnectionProperties_{
+      ConnectionProperties: &envoy_api_v2_route.RouteAction_HashPolicy_ConnectionProperties{
         SourceIp: v.Cluster.GetSourceip(),
       },
     },
   }
 }
 
-func (v VirtualHost) VirtualHost() *cp.VirtualHost {
-  hashPolicy := []*cp.RouteAction_HashPolicy{}
+func (v VirtualHost) VirtualHost() envoy_api_v2_route.VirtualHost {
+  hashPolicy := []*envoy_api_v2_route.RouteAction_HashPolicy{}
 
   for _, policy := range v.Cluster.GetHashpolicy() {
     if policy == "cookie" {
@@ -61,24 +62,24 @@ func (v VirtualHost) VirtualHost() *cp.VirtualHost {
     }
   }
 
-  return &cp.VirtualHost{
+  return envoy_api_v2_route.VirtualHost{
     Name:    v.Cluster.GetName(),
     Domains: v.Cluster.GetDomains(),
-    Routes: []*cp.Route{{
-      Match: &cp.RouteMatch{
-        PathSpecifier: &cp.RouteMatch_Prefix{
+    Routes: []envoy_api_v2_route.Route{{
+      Match: envoy_api_v2_route.RouteMatch{
+        PathSpecifier: &envoy_api_v2_route.RouteMatch_Prefix{
           Prefix: v.getPrefix(),
         },
       },
-      Action: &cp.Route_Route{
-        Route: &cp.RouteAction{
-          ClusterSpecifier: &cp.RouteAction_Cluster{
+      Action: &envoy_api_v2_route.Route_Route{
+        Route: &envoy_api_v2_route.RouteAction{
+          ClusterSpecifier: &envoy_api_v2_route.RouteAction_Cluster{
             Cluster: v.Cluster.GetName(),
           },
           HashPolicy: hashPolicy,
         },
       },
-      Decorator: &cp.Decorator{
+      Decorator: &envoy_api_v2_route.Decorator{
         Operation: v.Cluster.GetName(),
       },
     }},

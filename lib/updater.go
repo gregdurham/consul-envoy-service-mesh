@@ -4,7 +4,7 @@ import(
   "fmt"
   "github.com/cskr/pubsub"
   cpCache "github.com/envoyproxy/go-control-plane/pkg/cache"
-  "github.com/gregdurham/consul-envoy-xds/config"
+  "github.com/gregdurham/consul-envoy-service-mesh/config"
   "github.com/gogo/protobuf/proto"
   "github.com/golang/glog"
 )

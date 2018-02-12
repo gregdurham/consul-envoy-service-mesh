@@ -10,17 +10,19 @@ import (
   "errors"
   "strconv"
 
-  "github.com/envoyproxy/go-control-plane/api"
+  envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+  envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+  envoy_service_discovery_v2  "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 
   "github.com/envoyproxy/go-control-plane/pkg/cache"
 
   gcp "github.com/envoyproxy/go-control-plane/pkg/server"
 
-  "github.com/gregdurham/consul-envoy-xds/agent"
+  "github.com/gregdurham/consul-envoy-service-mesh/agent"
 
-  xdsConfig "github.com/gregdurham/consul-envoy-xds/config"
+  xdsConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
   
-  "github.com/gregdurham/consul-envoy-xds/lib"
+  "github.com/gregdurham/consul-envoy-service-mesh/lib"
 
   "github.com/golang/glog"
   "google.golang.org/grpc"
@@ -36,7 +38,7 @@ import (
 type Hasher struct {
 }
 
-func (h Hasher) Hash(node *api.Node) (cache.Key, error) {
+func (h Hasher) Hash(node *envoy_api_v2_core.Node) (cache.Key, error) {
   return cache.Key(node.GetId()), nil
 }
 
@@ -96,11 +98,11 @@ func main() {
   if err != nil {
     glog.Fatalf("failed to listen: %v", err)
   }
-  api.RegisterAggregatedDiscoveryServiceServer(grpcServer, server)
-  api.RegisterEndpointDiscoveryServiceServer(grpcServer, server)
-  api.RegisterClusterDiscoveryServiceServer(grpcServer, server)
-  api.RegisterRouteDiscoveryServiceServer(grpcServer, server)
-  api.RegisterListenerDiscoveryServiceServer(grpcServer, server)
+  envoy_service_discovery_v2.RegisterAggregatedDiscoveryServiceServer(grpcServer, server)
+  envoy_api_v2.RegisterEndpointDiscoveryServiceServer(grpcServer, server)
+  envoy_api_v2.RegisterClusterDiscoveryServiceServer(grpcServer, server)
+  envoy_api_v2.RegisterRouteDiscoveryServiceServer(grpcServer, server)
+  envoy_api_v2.RegisterListenerDiscoveryServiceServer(grpcServer, server)
   glog.Infof("xDS server listening on %d", xdsPort)
   go func() {
     if err = grpcServer.Serve(lis); err != nil {
