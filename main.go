@@ -8,7 +8,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
@@ -56,8 +55,6 @@ type Resources map[string][]interface{}
 var (
 	httpPort   uint
 	xdsPort    uint
-	interval   time.Duration
-	ads        bool
 	consulHost string
 	consulPort uint
 	configPath string
@@ -69,8 +66,6 @@ var ErrorQueue = make(chan error, 1000)
 func init() {
 	flag.UintVar(&xdsPort, "xds", 18000, "xDS server port")
 	flag.UintVar(&httpPort, "http", 18080, "Http server port")
-	flag.DurationVar(&interval, "interval", 10*time.Second, "Interval between cache refresh")
-	flag.BoolVar(&ads, "ads", false, "Use ADS instead of separate xDS services")
 	flag.StringVar(&consulHost, "consulHost", "127.0.0.1", "consul hostname/ip")
 	flag.UintVar(&consulPort, "consulPort", 8500, "consul port")
 	flag.StringVar(&configPath, "configPath", "envoy/", "consul kv path to configuration root")
@@ -85,7 +80,6 @@ func main() {
 	consulUrl := fmt.Sprintf("%s:%d", consulHost, consulPort)
 	a := agent.NewAgent(consulUrl, "", "dc1")
 
-	//RunCacheUpdate(ctx, config, ads, interval, upstreamPort, listenPort)
 	events := pubsub.New(1000)
 
 	go RunCacheUpdate(ctx, config, consulUrl, configPath, a, events)
