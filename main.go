@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -18,8 +17,6 @@ import (
 	gcp "github.com/envoyproxy/go-control-plane/pkg/server"
 
 	"github.com/gregdurham/consul-envoy-service-mesh/agent"
-
-	xdsConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
 
 	"github.com/gregdurham/consul-envoy-service-mesh/lib"
 
@@ -42,21 +39,12 @@ func (h Hasher) Hash(node *envoy_api_v2_core.Node) (cache.Key, error) {
 	return cache.Key(node.GetId()), nil
 }
 
-type Service struct {
-	name, resourceType string
-}
-
-type ServiceConfig struct {
-	name, resourceType, resourceName string
-}
-
-type Resources map[string][]interface{}
-
 var (
 	httpPort   uint
 	xdsPort    uint
 	consulHost string
 	consulPort uint
+	consulDC   string
 	configPath string
 )
 
@@ -69,6 +57,7 @@ func init() {
 	flag.StringVar(&consulHost, "consulHost", "127.0.0.1", "consul hostname/ip")
 	flag.UintVar(&consulPort, "consulPort", 8500, "consul port")
 	flag.StringVar(&configPath, "configPath", "envoy/", "consul kv path to configuration root")
+	flag.StringVar(&consulDC, "consulDC", "dc1", "consul datacenter")
 }
 
 func main() {
@@ -78,7 +67,7 @@ func main() {
 
 	config := cache.NewSimpleCache(Hasher{}, nil)
 	consulUrl := fmt.Sprintf("%s:%d", consulHost, consulPort)
-	a := agent.NewAgent(consulUrl, "", "dc1")
+	a := agent.NewAgent(consulUrl, "", consulDC)
 
 	events := pubsub.New(1000)
 
@@ -140,6 +129,7 @@ func RunCacheUpdate(ctx context.Context,
 
 	for {
 		resourceMap, err := ConfigConsulKV(configPath, a)
+		glog.V(10).Infof("resources %s", resourceMap)
 		if err != nil {
 			glog.V(10).Infof("Received the following error from the tag parser: %s", err)
 			break
@@ -154,15 +144,13 @@ func RunCacheUpdate(ctx context.Context,
 				updater.Start()
 				updaters[service] = updater
 			}
-			for _, resource := range resources {
-				if cluster, ok := resource.(xdsConfig.Cluster); ok {
-					if cluster.GetName() != "local_service" {
-						if _, ok = watchers[cluster.GetName()]; !ok {
-							watch := lib.NewWatcher("service", cluster.GetName(), consulUrl, serviceEndpoints, events, ErrorQueue)
-							watch.WatchPlan()
-							watch.Start()
-							watchers[cluster.GetName()] = watch
-						}
+			for _, cluster := range resources.Clusters {
+				if cluster.Name != "local_service" {
+					if _, ok := watchers[cluster.Name]; !ok {
+						watch := lib.NewWatcher("service", cluster.Name, consulUrl, serviceEndpoints, events, ErrorQueue)
+						watch.WatchPlan()
+						watch.Start()
+						watchers[cluster.Name] = watch
 					}
 				}
 			}
@@ -175,153 +163,55 @@ func RunCacheUpdate(ctx context.Context,
 	}
 }
 
-func ConfigConsulKV(configPath string, a agent.ConsulAgent) (Resources, error) {
-	serviceConfigs, _ := a.ListKeys(configPath)
-	mapping := make(map[ServiceConfig]map[string]string)
+func ConfigConsulKV(configPath string, a agent.ConsulAgent) (lib.Resources, error) {
+	serviceConfigs, err := a.ListKeys(configPath)
+	mapping := lib.NewConfigMapping()
+
+	if err != nil {
+		return nil, err
+	}
 
 	for _, servicePath := range serviceConfigs {
 		if strings.HasSuffix(servicePath.Key, "/") {
 			continue
 		}
 
-		svc := strings.TrimPrefix(servicePath.Key, configPath)
-		/*
-		   0: service name
-		   1: type (cluster/listener)
-		   2: type name (cluster name/listener name)
-		   3: option name
-		*/
-
-		splitServicePath := strings.Split(svc, "/")
-		if len(splitServicePath) != 4 {
-			continue
-		}
-		if _, ok := mapping[ServiceConfig{splitServicePath[0], splitServicePath[1], splitServicePath[2]}]; ok {
-			mapping[ServiceConfig{splitServicePath[0], splitServicePath[1], splitServicePath[2]}][splitServicePath[3]] = string(servicePath.Value[:])
-		} else {
-			mapping[ServiceConfig{splitServicePath[0], splitServicePath[1], splitServicePath[2]}] = make(map[string]string)
-			mapping[ServiceConfig{splitServicePath[0], splitServicePath[1], splitServicePath[2]}]["name"] = splitServicePath[2]
-			mapping[ServiceConfig{splitServicePath[0], splitServicePath[1], splitServicePath[2]}][splitServicePath[3]] = string(servicePath.Value[:])
-		}
-	}
-	serviceMap := make(Resources)
-	for k, v := range mapping {
-		resource, err := ParseConfigConsul(k.resourceType, v)
-		if err != nil {
+		var v lib.Configs
+		if err := json.Unmarshal(servicePath.Value, &v); err != nil {
 			return nil, err
 		}
-		serviceMap[k.name] = append(serviceMap[k.name], resource)
+
+		for _, config := range v {
+			if cluster, ok := config.(*lib.ClusterConfig); ok {
+				mapping.Cluster[cluster.Name] = *cluster
+			} else if listener, ok := config.(*lib.ListenerConfig); ok {
+				mapping.Listerner[listener.Name] = *listener
+			} else if service, ok := config.(*lib.ServiceConfig); ok {
+				mapping.Service[service.Name] = *service
+			}
+		}
+	}
+	serviceMap := make(lib.Resources)
+
+	for _, service := range mapping.Service {
+		resource := lib.NewResource()
+		for _, listener := range service.Listeners {
+			if listenerVal, ok := mapping.Listerner[listener]; ok {
+				resource.Listeners = append(resource.Listeners, listenerVal)
+				for _, cluster := range listenerVal.Clusters {
+					if clusterVal, ok := mapping.Cluster[cluster]; ok {
+						resource.Clusters = append(resource.Clusters, clusterVal)
+					} else {
+						//cluster doesnt exist
+						glog.Errorf("cluster %s does not exist", cluster)
+					}
+				}
+			} else {
+				// listener doesnt exist
+				glog.Errorf("cluster %s does not exist", listener)
+			}
+		}
+		serviceMap[service.Name] = *resource
 	}
 	return serviceMap, nil
-}
-
-func ConfigConsulTags(a agent.ConsulAgent) (Resources, error) {
-	services, _ := a.CatalogServices()
-	serviceMap := make(Resources)
-	for service, tags := range services {
-		for _, tag := range tags {
-			resource, err := ParseConfig(tag)
-			if err != nil {
-				return nil, err
-			}
-			serviceMap[service] = append(serviceMap[service], resource)
-		}
-	}
-	return serviceMap, nil
-}
-
-func ParseConfig(configString string) (interface{}, error) {
-	var conf interface{}
-
-	options := strings.Split(configString, ";")
-
-	if options[0] == "listener" {
-		conf = xdsConfig.NewListener()
-	} else if options[0] == "cluster" {
-		conf = xdsConfig.NewCluster()
-	} else {
-		return nil, errors.New("Not a config string")
-	}
-
-	for i := 1; i < len(options); i++ {
-		option := strings.Split(options[i], "|")
-		if len(option) != 2 {
-			break
-		}
-		key := strings.Title(option[0])
-		value := option[1]
-
-		fieldType, err := lib.GetFieldType(&conf, key)
-		if err != nil {
-			return nil, err
-		}
-		if fieldType == "int" {
-			value, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, errors.New("Could not convert string to int")
-			}
-			lib.SetIntField(&conf, key, int64(value))
-		} else if fieldType == "string" {
-			lib.SetStringField(&conf, key, value)
-		} else if fieldType == "bool" {
-			value, err := strconv.ParseBool(value)
-			if err != nil {
-				return nil, errors.New("Could not convert string to boolean")
-			}
-			lib.SetBoolField(&conf, key, value)
-		} else if fieldType == "[]string" {
-			items := strings.Split(value, ",")
-			for _, item := range items {
-				lib.AppendToSlice(&conf, key, item)
-			}
-		} else {
-			return nil, errors.New("Value type not recoginized, must be one of string, int, or boolean")
-		}
-	}
-	return conf, nil
-}
-
-func ParseConfigConsul(resourceType string, mapping map[string]string) (interface{}, error) {
-	var conf interface{}
-
-	if resourceType == "listener" {
-		conf = xdsConfig.NewListener()
-	} else if resourceType == "cluster" {
-		conf = xdsConfig.NewCluster()
-	} else {
-		return nil, errors.New("Not a config string")
-	}
-
-	for k, v := range mapping {
-		key := strings.Title(k)
-		value := v
-
-		fieldType, err := lib.GetFieldType(&conf, key)
-		if err != nil {
-			return nil, err
-		}
-		if fieldType == "int" {
-			value, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, errors.New("Could not convert string to int")
-			}
-			lib.SetIntField(&conf, key, int64(value))
-		} else if fieldType == "string" {
-			lib.SetStringField(&conf, key, value)
-		} else if fieldType == "bool" {
-			value, err := strconv.ParseBool(value)
-			if err != nil {
-				return nil, errors.New("Could not convert string to boolean")
-			}
-			lib.SetBoolField(&conf, key, value)
-		} else if fieldType == "[]string" {
-			items := strings.Split(value, ",")
-			for _, item := range items {
-				lib.AppendToSlice(&conf, key, item)
-			}
-		} else {
-			return nil, errors.New("Value type not recoginized, must be one of string, int, or boolean")
-		}
-	}
-	return conf, nil
 }

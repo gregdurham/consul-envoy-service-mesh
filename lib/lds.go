@@ -1,8 +1,6 @@
 package lib
 
 import (
-	strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
-
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_auth "github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
@@ -24,7 +22,7 @@ type Listener interface {
 }
 
 type lds struct {
-	listener strConfig.Listener
+	listener ListenerConfig
 	ads      bool
 }
 
@@ -49,11 +47,7 @@ func (s *lds) configSource() envoy_api_v2_core.ConfigSource {
 	return rdsSource
 }
 
-func (s *lds) healthCheck() *types.Struct {
-	healthCheck := &envoy_config_filter_http_health_check_v2.HealthCheck{
-		PassThroughMode: &types.BoolValue{true},
-		Endpoint:        "/status",
-	}
+func (s *lds) healthCheck(healthCheck *envoy_config_filter_http_health_check_v2.HealthCheck) *types.Struct {
 	pbst, err := util.MessageToStruct(healthCheck)
 	if err != nil {
 		panic(err)
@@ -164,15 +158,18 @@ func (s *lds) manager() *types.Struct {
 
 	statPrefix := ""
 
-	if s.listener.GetName() == "local_service" {
+	if healthCheck := s.listener.Healthcheck; healthCheck != nil {
+		healthCheckFilter := &hcm.HttpFilter{
+			Name:   "envoy.health_check",
+			Config: s.healthCheck(healthCheck),
+		}
+		httpFilters = append(httpFilters, healthCheckFilter)
+	}
+
+	if s.listener.Name == "local_service" {
 		statPrefix = "ingress_http"
 		operation = hcm.INGRESS
-		healthCheck := &hcm.HttpFilter{
-			Name:   "envoy.health_check",
-			Config: s.healthCheck(),
-		}
 
-		httpFilters = append(httpFilters, healthCheck)
 		logs = append(logs, s.accessLog(statPrefix))
 		logs = append(logs, s.errorLog(statPrefix))
 	} else {
@@ -189,7 +186,7 @@ func (s *lds) manager() *types.Struct {
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
 			Rds: &hcm.Rds{
 				ConfigSource:    s.configSource(),
-				RouteConfigName: s.listener.GetName(),
+				RouteConfigName: s.listener.Name,
 			},
 		},
 		HttpFilters: httpFilters,
@@ -218,13 +215,14 @@ func (s *lds) configTLS() *envoy_api_v2_auth.DownstreamTlsContext {
 					},
 				},
 			}},
+			AlpnProtocols: []string{"h2", "http/1.1"},
 		},
 	}
 }
 
 func (s *lds) configFilterChain() envoy_api_v2_listener.FilterChain {
 	var filterChain envoy_api_v2_listener.FilterChain
-	if s.listener.GetTLS() == true {
+	if s.listener.TLS == true {
 		filterChain = envoy_api_v2_listener.FilterChain{
 			TlsContext: s.configTLS(),
 			Filters: []envoy_api_v2_listener.Filter{{
@@ -245,14 +243,14 @@ func (s *lds) configFilterChain() envoy_api_v2_listener.FilterChain {
 
 func (s *lds) Listener() *envoy_api_v2.Listener {
 	listener := &envoy_api_v2.Listener{
-		Name: s.listener.GetName(),
+		Name: s.listener.Name,
 		Address: envoy_api_v2_core.Address{
 			Address: &envoy_api_v2_core.Address_SocketAddress{
 				SocketAddress: &envoy_api_v2_core.SocketAddress{
 					Protocol: envoy_api_v2_core.TCP,
-					Address:  s.listener.GetHost(),
+					Address:  s.listener.Host,
 					PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
-						PortValue: uint32(s.listener.GetPort()),
+						PortValue: uint32(s.listener.Port),
 					},
 				},
 			},
@@ -264,7 +262,7 @@ func (s *lds) Listener() *envoy_api_v2.Listener {
 	return listener
 }
 
-func NewListener(listener strConfig.Listener, ads bool) Listener {
+func NewListener(listener ListenerConfig, ads bool) Listener {
 	return &lds{listener: listener,
 		ads: ads}
 }

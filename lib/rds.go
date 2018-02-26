@@ -3,8 +3,6 @@ package lib
 import (
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_route "github.com/envoyproxy/go-control-plane/envoy/api/v2/route"
-
-	strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
 )
 
 type Route interface {
@@ -13,7 +11,7 @@ type Route interface {
 
 type route struct {
 	name     string
-	services []strConfig.Cluster
+	services []ClusterConfig
 }
 
 func (s *route) getVirtualHosts() []envoy_api_v2_route.VirtualHost {
@@ -28,6 +26,6 @@ func (s *route) RouteCfg() *envoy_api_v2.RouteConfiguration {
 	return &envoy_api_v2.RouteConfiguration{Name: s.name, VirtualHosts: s.getVirtualHosts()}
 }
 
-func NewRoute(name string, services []strConfig.Cluster) Route {
+func NewRoute(name string, services []ClusterConfig) Route {
 	return &route{name: name, services: services}
 }

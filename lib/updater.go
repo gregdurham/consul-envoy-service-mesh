@@ -7,13 +7,12 @@ import (
 	cpCache "github.com/envoyproxy/go-control-plane/pkg/cache"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/glog"
-	"github.com/gregdurham/consul-envoy-service-mesh/config"
 )
 
 type Updater struct {
 	ID               string
-	Listeners        []config.Listener
-	Clusters         []config.Cluster
+	Listeners        []ListenerConfig
+	Clusters         []ClusterConfig
 	Subscriptions    []string
 	ServiceEndpoints EndpointIndex
 	Cache            cpCache.Cache
@@ -34,7 +33,7 @@ type endpoint struct {
 
 type cmd struct {
 	command string
-	data    []interface{}
+	data    Resource
 }
 
 func NewUpdater(id string, cache cpCache.Cache, events *pubsub.PubSub, serviceEndpoints EndpointIndex, errorChan chan error) Updater {
@@ -51,18 +50,14 @@ func NewUpdater(id string, cache cpCache.Cache, events *pubsub.PubSub, serviceEn
 	return updater
 }
 
-func (u *Updater) SetResources(resources []interface{}) {
-	listeners := make([]config.Listener, 0)
-	clusters := make([]config.Cluster, 0)
+func (u *Updater) SetResources(resource Resource) {
+	listeners := resource.Listeners
+	clusters := resource.Clusters
 	subscriptions := []string{}
-	for _, resource := range resources {
-		if cluster, ok := resource.(config.Cluster); ok {
-			clusters = append(clusters, cluster)
-			subscriptions = append(subscriptions, cluster.GetName())
-		} else if listener, ok := resource.(config.Listener); ok {
-			listeners = append(listeners, listener)
-		}
+	for _, cluster := range resource.Clusters {
+		subscriptions = append(subscriptions, cluster.Name)
 	}
+
 	u.Listeners = listeners
 	u.Clusters = clusters
 	u.Subscriptions = subscriptions
@@ -104,6 +99,10 @@ func (u *Updater) updateEndpoint() {
 }
 
 func (u *Updater) writeSnapshot() {
+	glog.V(10).Infof("%s", u.grpcEndpoints)
+	glog.V(10).Infof("%s", u.grpcClusters)
+	glog.V(10).Infof("%s", u.grpcRoutes)
+	glog.V(10).Infof("%s", u.grpcListeners)
 	version := fmt.Sprintf("version%d", u.SnapshotId)
 	snapshot := cpCache.NewSnapshot(version,
 		u.grpcEndpoints,
@@ -114,33 +113,33 @@ func (u *Updater) writeSnapshot() {
 	u.SnapshotId++
 }
 
-func (u *Updater) createListener(listener config.Listener) proto.Message {
+func (u *Updater) createListener(listener ListenerConfig) proto.Message {
 	lstn := NewListener(listener, true)
 	return lstn.Listener()
 }
 
-func (u *Updater) createCluster(cluster config.Cluster) proto.Message {
+func (u *Updater) createCluster(cluster ClusterConfig) proto.Message {
 	cls := NewCluster(cluster, true)
 	return cls.Cluster()
 }
 
-func (u *Updater) createEndpoint(cluster config.Cluster) proto.Message {
-	if cluster.GetName() == "local_service" {
+func (u *Updater) createEndpoint(cluster ClusterConfig) proto.Message {
+	if cluster.Name == "local_service" {
 		svc := []*endpoint{{
-			address: cluster.GetHost(),
-			port:    cluster.GetPort(),
+			address: cluster.Host,
+			port:    cluster.Port,
 		}}
-		ep := NewEndpoint(cluster.GetName(), svc)
+		ep := NewEndpoint(cluster.Name, svc)
 		return ep.CLA()
 	}
-	if k, ok := u.ServiceEndpoints.GetEndpoints(cluster.GetName()); ok {
-		ep := NewEndpoint(cluster.GetName(), k)
+	if k, ok := u.ServiceEndpoints.GetEndpoints(cluster.Name); ok {
+		ep := NewEndpoint(cluster.Name, k)
 		return ep.CLA()
 	}
 	return nil
 }
 
-func (u *Updater) createRoute(listener string, clusters []config.Cluster) proto.Message {
+func (u *Updater) createRoute(listener string, clusters []ClusterConfig) proto.Message {
 	rt := NewRoute(listener, clusters)
 	return rt.RouteCfg()
 }
@@ -151,18 +150,20 @@ func (u *Updater) updateConfiguration() {
 	endpoints := make([]proto.Message, 0)
 	routes := make([]proto.Message, 0)
 
-	resourceMapping := make(map[string][]config.Cluster, 0)
+	resourceMapping := make(map[string][]ClusterConfig, 0)
 
 	for _, listener := range u.Listeners {
 		listeners = append(listeners, u.createListener(listener))
-	}
+		for _, clusterName := range listener.Clusters {
+			for _, cluster := range u.Clusters {
+				if clusterName == cluster.Name {
+					resourceMapping[listener.Name] = append(resourceMapping[listener.Name], cluster)
 
-	for _, cluster := range u.Clusters {
-		listener := cluster.GetListener()
-		resourceMapping[listener] = append(resourceMapping[listener], cluster)
-
-		clusters = append(clusters, u.createCluster(cluster))
-		endpoints = append(endpoints, u.createEndpoint(cluster))
+					clusters = append(clusters, u.createCluster(cluster))
+					endpoints = append(endpoints, u.createEndpoint(cluster))
+				}
+			}
+		}
 	}
 
 	for listener, clusters := range resourceMapping {
@@ -183,7 +184,7 @@ func (u *Updater) Stop() {
 	}()
 }
 
-func (u *Updater) RefreshConfig(data []interface{}) {
+func (u *Updater) RefreshConfig(data Resource) {
 	go func() {
 		cmd := &cmd{
 			command: "refresh",

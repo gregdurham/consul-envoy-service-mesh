@@ -20,35 +20,61 @@ However, you will now need to determine a kv path in consul which you will use f
 
 Sample configuration:
 ```
-"envoy/test/"
-"envoy/test/cluster/"
-"envoy/test/cluster/local_service/"
-"envoy/test/cluster/local_service/domains" => "*"
-"envoy/test/cluster/local_service/host" => "127.0.0.1"
-"envoy/test/cluster/local_service/listener" => "local_service"
-"envoy/test/cluster/local_service/port" => 8080
-"envoy/test/cluster/local_service/prefix" => "/"
-"envoy/test/cluster/local_service/tls" => false
-"envoy/test/cluster/rethinkdb/"
-"envoy/test/cluster/rethinkdb/domains" => "*"
-"envoy/test/cluster/rethinkdb/listener" => "internal_egress"
-"envoy/test/cluster/rethinkdb/tls" => false
-"envoy/test/listener/"
-"envoy/test/listener/internal_egress/" 
-"envoy/test/listener/internal_egress/host" => "127.0.0.1"
-"envoy/test/listener/internal_egress/port" => 8182
-"envoy/test/listener/internal_egress/tls" => false
-"envoy/test/listener/local_service/"
-"envoy/test/listener/local_service/host" => 0.0.0.0
-"envoy/test/listener/local_service/port" => 8443
-"envoy/test/listener/local_service/tls" => true
+"envoy/test_service" => 
+{
+    "type":"service",
+    "name":"test_service",
+    "listeners": [
+        "test_listener"
+    ]
+}
+
+"envoy/test_listener" => 
+{
+	"type": "listener",
+	"name": "test_listener",
+	"tls": true,
+	"host": "0.0.0.0",
+	"port": 8443,
+	"health_check":{
+		"pass_through_mode": {"value": true},
+		"endpoint": "/status"
+	},
+	"prefix": "/",
+	"protocol": "http2",
+	"clusters": [
+		"test_cluster"
+	]
+}
+
+"envoy/test_cluster" => 
+{
+	"type": "cluster",
+	"name": "test_cluster",
+	"tls": false,
+	"host": "127.0.0.1",
+	"port": 8080,
+	"domains": ["*"],
+	"prefix": "/",
+	"protocol": "http2",
+	"health_checks": [
+	  {
+		"type": "http",
+		"timeout_ms": 1000,
+		"interval_ms": 1000,
+		"unhealthy_threshold": 5,
+		"healthy_threshold": 6,
+		"path": "/status"
+	  }
+	]
+}
 ```
 
 If TLS is true above, the certs are assumed to be installed in `/etc/envoy/ssl/` the files are `envoy.pem` and `envoy.crt`. This will be configurable in the future.
 
 Available options are here: 
-- [cluster](https://github.com/gregdurham/consul-envoy-service-mesh/blob/master/config/cluster.go#L21)
-- [listener](https://github.com/gregdurham/consul-envoy-service-mesh/blob/master/config/listener.go#L14)
+- [cluster](https://github.com/gregdurham/consul-envoy-service-mesh/blob/master/lib/config.go#L123)
+- [listener](https://github.com/gregdurham/consul-envoy-service-mesh/blob/master/lib/config.go#L111)
 
 The list of available options configurable will continue to grow. If you have requests, please create an issue, and they will be prioritized. Please submit PRs, it would be greatfully appreciated. 
 
@@ -65,6 +91,8 @@ Usage of /Users/gdurham/.go/bin/consul-envoy-service-mesh:
       log to standard error as well as files
   -configPath string
       consul kv path to configuration root (default "envoy/")
+  -consulDC string
+      consul datacenter (default "dc1")
   -consulHost string
       consul hostname/ip (default "127.0.0.1")
   -consulPort uint

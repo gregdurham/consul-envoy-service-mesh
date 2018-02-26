@@ -3,7 +3,7 @@ package lib
 import (
 	"time"
 
-	strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
+	//strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_auth "github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
@@ -15,12 +15,12 @@ type Cluster interface {
 }
 
 type cds struct {
-	cluster strConfig.Cluster
+	cluster ClusterConfig
 	ads     bool
 }
 
 func (s *cds) clusterName() string {
-	return s.cluster.GetName()
+	return s.cluster.Name
 }
 
 func (s *cds) configSource() *envoy_api_v2_core.ConfigSource {
@@ -47,15 +47,20 @@ func (s *cds) configSource() *envoy_api_v2_core.ConfigSource {
 
 func (s *cds) configTLS() *envoy_api_v2_auth.UpstreamTlsContext {
 	var tlsContext *envoy_api_v2_auth.UpstreamTlsContext
-	if s.cluster.GetTLS() == true {
+	if s.cluster.TLS == true {
 		tlsContext = &envoy_api_v2_auth.UpstreamTlsContext{}
 	}
 
 	return tlsContext
 }
 
+func (s *cds) configHTTP2ProtoOpts() *envoy_api_v2_core.Http2ProtocolOptions {
+	var http2ProtoOpts = &envoy_api_v2_core.Http2ProtocolOptions{}
+	return http2ProtoOpts
+}
+
 func (s *cds) Cluster() *envoy_api_v2.Cluster {
-	return &envoy_api_v2.Cluster{
+	cluster := &envoy_api_v2.Cluster{
 		Name:           s.clusterName(),
 		ConnectTimeout: 5 * time.Second,
 		Type:           envoy_api_v2.Cluster_EDS,
@@ -65,8 +70,15 @@ func (s *cds) Cluster() *envoy_api_v2.Cluster {
 		},
 		TlsContext: s.configTLS(),
 	}
+
+	if s.cluster.Protocol == "http2" {
+		cluster.Http2ProtocolOptions = s.configHTTP2ProtoOpts()
+	}
+	cluster.HealthChecks = cluster.HealthChecks
+
+	return cluster
 }
 
-func NewCluster(cluster strConfig.Cluster, ads bool) Cluster {
+func NewCluster(cluster ClusterConfig, ads bool) Cluster {
 	return &cds{cluster: cluster, ads: ads}
 }
