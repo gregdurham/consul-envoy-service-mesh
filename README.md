@@ -1,3 +1,4 @@
+![Build Status](https://circleci.com/gh/gregdurham/consul-envoy-service-mesh.svg?style=shield&circle-token=75c634796919ab82cec5007aac66a9d74f12bbe6)
 # Consul backed envoy service mesh
 consul-envoy-service-mesh implements the envoy dataplane api, exposing configuration using xDS. This implementation exposes the following components:
 - Listeners [LDS](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/dynamic_configuration.html#arch-overview-dynamic-config-lds)
