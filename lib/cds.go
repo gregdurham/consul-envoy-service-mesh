@@ -3,8 +3,6 @@ package lib
 import (
 	"time"
 
-	//strConfig "github.com/gregdurham/consul-envoy-service-mesh/config"
-
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_auth "github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
@@ -74,7 +72,7 @@ func (s *cds) Cluster() *envoy_api_v2.Cluster {
 	if s.cluster.Protocol == "http2" {
 		cluster.Http2ProtocolOptions = s.configHTTP2ProtoOpts()
 	}
-	cluster.HealthChecks = cluster.HealthChecks
+	cluster.HealthChecks = s.cluster.Healthchecks
 
 	return cluster
 }

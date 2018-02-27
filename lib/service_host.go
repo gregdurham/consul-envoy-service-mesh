@@ -3,8 +3,6 @@ package lib
 import (
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
-
-	"github.com/hashicorp/consul/api"
 )
 
 type ServiceHost struct {
@@ -31,17 +29,6 @@ func (h ServiceHost) LbEndpoint() envoy_api_v2_endpoint.LbEndpoint {
 					},
 				},
 			}}}
-}
-
-func NewServiceHostFromCatalog(s *api.CatalogService) ServiceHost {
-	return ServiceHost{
-		IPAddress:   s.ServiceAddress,
-		Port:        s.ServicePort,
-		Tags:        s.ServiceTags,
-		Service:     s.ServiceName,
-		CreateIndex: s.CreateIndex,
-		ModifyIndex: s.ModifyIndex,
-	}
 }
 
 func NewServiceHost(endpoint *endpoint) ServiceHost {
