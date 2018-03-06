@@ -1,10 +1,13 @@
 package lib
 
+import "sync"
+
 type Service struct {
 	Name, ResourceType string
 }
 
 type ConfigMapping struct {
+	M         sync.Mutex
 	Cluster   map[string]ClusterConfig
 	Listerner map[string]ListenerConfig
 	Service   map[string]ServiceConfig

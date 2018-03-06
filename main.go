@@ -8,6 +8,8 @@ import (
 	"net"
 	"strings"
 
+	"sync"
+
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_service_discovery_v2 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
@@ -28,6 +30,7 @@ import (
 	"net/http"
 
 	"github.com/grpc-ecosystem/go-grpc-prometheus"
+	consul_api "github.com/hashicorp/consul/api"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -35,8 +38,8 @@ import (
 type Hasher struct {
 }
 
-func (h Hasher) Hash(node *envoy_api_v2_core.Node) (cache.Key, error) {
-	return cache.Key(node.GetId()), nil
+func (h Hasher) ID(node *envoy_api_v2_core.Node) string {
+	return node.GetId()
 }
 
 var (
@@ -65,7 +68,8 @@ func main() {
 
 	ctx := context.Background()
 
-	config := cache.NewSimpleCache(Hasher{}, nil)
+	config := cache.NewSnapshotCache(true, Hasher{}, nil)
+
 	consulUrl := fmt.Sprintf("%s:%d", consulHost, consulPort)
 	a := agent.NewAgent(consulUrl, "", consulDC)
 
@@ -73,7 +77,7 @@ func main() {
 
 	go RunCacheUpdate(ctx, config, consulUrl, configPath, a, events)
 
-	server := gcp.NewServer(config)
+	server := gcp.NewServer(cache.Cache(config), nil)
 	grpcServer := grpc.NewServer(
 		grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 		grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
@@ -111,7 +115,7 @@ func main() {
 }
 
 func RunCacheUpdate(ctx context.Context,
-	config cache.Cache,
+	config cache.SnapshotCache,
 	consulUrl string,
 	configPath string,
 	a agent.ConsulAgent,
@@ -129,28 +133,27 @@ func RunCacheUpdate(ctx context.Context,
 
 	for {
 		resourceMap, err := ConfigConsulKV(configPath, a)
-		glog.V(10).Infof("resources %s", resourceMap)
-		if err != nil {
-			glog.V(10).Infof("Received the following error from the tag parser: %s", err)
-			break
-		}
 
-		for service, resources := range resourceMap {
-			if cacheUpdater, ok := updaters[service]; ok {
-				cacheUpdater.RefreshConfig(resources)
-			} else {
-				updater := lib.NewUpdater(service, config, events, serviceEndpoints, ErrorQueue)
-				updater.SetResources(resources)
-				updater.Start()
-				updaters[service] = updater
-			}
-			for _, cluster := range resources.Clusters {
-				if cluster.Name != "local_service" {
-					if _, ok := watchers[cluster.Name]; !ok {
-						watch := lib.NewWatcher("service", cluster.Name, consulUrl, serviceEndpoints, events, ErrorQueue)
-						watch.WatchPlan()
-						watch.Start()
-						watchers[cluster.Name] = watch
+		if err != nil {
+			glog.Errorf("Invalid or malformed json: %s", err)
+		} else {
+			for service, resources := range resourceMap {
+				if cacheUpdater, ok := updaters[service]; ok {
+					cacheUpdater.RefreshConfig(resources)
+				} else {
+					updater := lib.NewUpdater(service, config, events, serviceEndpoints, ErrorQueue)
+					updater.SetResources(resources)
+					updater.Start()
+					updaters[service] = updater
+				}
+				for _, cluster := range resources.Clusters {
+					if cluster.Name != "local_service" {
+						if _, ok := watchers[cluster.Name]; !ok {
+							watch := lib.NewWatcher("service", cluster.Name, consulUrl, serviceEndpoints, events, ErrorQueue)
+							watch.WatchPlan()
+							watch.Start()
+							watchers[cluster.Name] = watch
+						}
 					}
 				}
 			}
@@ -163,6 +166,31 @@ func RunCacheUpdate(ctx context.Context,
 	}
 }
 
+func unmarshalConfig(mapping *lib.ConfigMapping, config *consul_api.KVPair) error {
+	var v lib.Configs
+	if err := json.Unmarshal(config.Value, &v); err != nil {
+
+		return fmt.Errorf("Invalid JSON in %s", config.Key)
+	}
+	for _, config := range v {
+		if cluster, ok := config.(*lib.ClusterConfig); ok {
+			mapping.M.Lock()
+			mapping.Cluster[cluster.Name] = *cluster
+			mapping.M.Unlock()
+		} else if listener, ok := config.(*lib.ListenerConfig); ok {
+			mapping.M.Lock()
+			mapping.Listerner[listener.Name] = *listener
+			mapping.M.Unlock()
+		} else if service, ok := config.(*lib.ServiceConfig); ok {
+			mapping.M.Lock()
+			mapping.Service[service.Name] = *service
+			mapping.M.Unlock()
+		}
+	}
+	return nil
+
+}
+
 func ConfigConsulKV(configPath string, a agent.ConsulAgent) (lib.Resources, error) {
 	serviceConfigs, err := a.ListKeys(configPath)
 	mapping := lib.NewConfigMapping()
@@ -170,36 +198,30 @@ func ConfigConsulKV(configPath string, a agent.ConsulAgent) (lib.Resources, erro
 	if err != nil {
 		return nil, err
 	}
-
+	wg := sync.WaitGroup{}
 	for _, servicePath := range serviceConfigs {
 		if strings.HasSuffix(servicePath.Key, "/") {
 			continue
 		}
-
-		var v lib.Configs
-		if err := json.Unmarshal(servicePath.Value, &v); err != nil {
-			return nil, err
-		}
-
-		for _, config := range v {
-			if cluster, ok := config.(*lib.ClusterConfig); ok {
-				mapping.Cluster[cluster.Name] = *cluster
-			} else if listener, ok := config.(*lib.ListenerConfig); ok {
-				mapping.Listerner[listener.Name] = *listener
-			} else if service, ok := config.(*lib.ServiceConfig); ok {
-				mapping.Service[service.Name] = *service
-			}
-		}
+		wg.Add(1)
+		go func(mapping *lib.ConfigMapping, config *consul_api.KVPair) {
+			defer wg.Done()
+			unmarshalConfig(mapping, config)
+		}(mapping, servicePath)
 	}
+	wg.Wait()
 	serviceMap := make(lib.Resources)
 
 	for _, service := range mapping.Service {
+		glog.V(10).Infof("Introspecting service %s", service.Name)
 		resource := lib.NewResource()
 		for _, listener := range service.Listeners {
 			if listenerVal, ok := mapping.Listerner[listener]; ok {
+				glog.V(10).Infof("Creating listener %s", listenerVal.Name)
 				resource.Listeners = append(resource.Listeners, listenerVal)
 				for _, cluster := range listenerVal.Clusters {
 					if clusterVal, ok := mapping.Cluster[cluster]; ok {
+						glog.V(10).Infof("Creating cluster %s", clusterVal.Name)
 						resource.Clusters = append(resource.Clusters, clusterVal)
 					} else {
 						//cluster doesnt exist
