@@ -21,12 +21,6 @@ func (h Hasher) ID(node *envoy_api_v2_core.Node) string {
 
 var ErrorQueue = make(chan error, 1000)
 
-type mockConfigWatcher struct {
-	counts     map[string]int
-	responses  map[string][]cache.Response
-	closeWatch bool
-}
-
 var (
 	snapshot1   = make(map[string][]byte)
 	snapshot2   = make(map[string][]byte)
@@ -194,7 +188,6 @@ func TestRun(t *testing.T) {
 					if !reflect.DeepEqual(marshallResource(out.Resources), tc.snapshot[typ]) {
 						t.Errorf("get resources %v, want %v", out.Resources, tc.snapshot[typ])
 					}
-					//fmt.Println(out.Resources)
 				case <-time.After(time.Second):
 					break
 				}
