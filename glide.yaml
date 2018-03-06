@@ -11,6 +11,7 @@ import:
 - package: github.com/hashicorp/consul
   version: ^1.0.2
 - package: github.com/envoyproxy/go-control-plane
+  version: 27b41d66e93019989af69b01b92fabdda78a6be1
 - package: github.com/cskr/pubsub
 - package: github.com/prometheus/client_golang
 - package: github.com/grpc-ecosystem/go-grpc-prometheus
