@@ -20,7 +20,6 @@ jobs:
     working_directory: /go/src/github.com/gregdurham/consul-envoy-service-mesh
     steps:
       - checkout
-      - run: make check
       - run: make depend.install
       - run: make build
       - run: make test
